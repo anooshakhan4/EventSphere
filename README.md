@@ -68,13 +68,6 @@ Global: English/Urdu toggle with full right-to-left layout and Nastaliq font, li
 
 A background sweep runs every minute: it releases expired ticket, seat and stall holds, and offers freed tickets to the next person on the waitlist.
 
-## Next steps
-
-1. Connect the frontend to the API: replace imports from `lib/data.ts` with `fetch` calls (shapes already match).
-2. Add the JazzCash and Easypaisa merchant credentials and finish the two `init()` calls in `src/lib/payments.ts`.
-3. Email and push notifications (marked `TODO` in the code), certificate PDFs, image uploads for covers.
-4. Organizer dashboard pages (analytics charts, check-in scanner), admin panel UI, and the recommendations ranking.
-
 ## Notes
 
 - The API type-checks, but it hasn't been run against a database yet. Run `prisma db push` and the seed on your machine first.
