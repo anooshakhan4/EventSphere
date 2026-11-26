@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* EventSphere tokens: deep indigo night, marigold garlands, mehndi green. */
+:root {
+  --paper: 246 245 251;   /* #F6F5FB lilac-tinted white */
+  --surface: 255 255 255;
+  --ink: 30 27 58;        /* #1E1B3A deep indigo */
+  --muted: 98 94 125;     /* #625E7D */
+  --line: 226 223 238;    /* #E2DFEE */
+  --marigold: 242 160 7;  /* #F2A007 */
+  --mehndi: 75 107 60;    /* #4B6B3C */
+  --rose: 214 51 108;     /* #D6336C */
+  --night: 30 27 58;
+  color-scheme: light;
+}
+
+.dark {
+  --paper: 18 16 38;      /* #121026 */
+  --surface: 29 26 56;    /* #1D1A38 */
+  --ink: 237 235 247;
+  --muted: 168 164 196;
+  --line: 52 48 88;
+  --marigold: 247 178 46;
+  --mehndi: 143 181 120;
+  --rose: 240 101 149;
+  --night: 12 10 28;
+  color-scheme: dark;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+  font-size: 17px;
+  line-height: 1.6;
+}
+html[lang='ur'] body { @apply font-urdu; line-height: 2.1; }
+html[lang='ur'] .font-display { font-family: 'Noto Nastaliq Urdu', serif; line-height: 1.9; }
+
+:focus-visible { outline: 3px solid rgb(var(--marigold)); outline-offset: 3px; border-radius: 6px; }
+
+/* The ticket stub: notches cut at the perforation line. --cut = distance from the top. */
+.stub {
+  --notch: 11px;
+  --cut: 180px;
+  -webkit-mask:
+    radial-gradient(circle var(--notch) at 0 var(--cut), transparent 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle var(--notch) at 100% var(--cut), transparent 98%, #000) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle var(--notch) at 0 var(--cut), transparent 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle var(--notch) at 100% var(--cut), transparent 98%, #000) right / 51% 100% no-repeat;
+}
+/* Horizontal stub: notches at top and bottom, at --cut from the left. */
+.stub-h {
+  --notch: 12px;
+  --cut: 70%;
+  -webkit-mask:
+    radial-gradient(circle var(--notch) at var(--cut) 0, transparent 98%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at var(--cut) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
+  mask:
+    radial-gradient(circle var(--notch) at var(--cut) 0, transparent 98%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at var(--cut) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
+}
+.perf { background-image: linear-gradient(to right, rgb(var(--line)) 55%, transparent 0); background-size: 12px 2px; background-repeat: repeat-x; height: 2px; }
+.perf-v { background-image: linear-gradient(to bottom, rgb(var(--line)) 55%, transparent 0); background-size: 2px 12px; background-repeat: repeat-y; width: 2px; }
+
+/* Hero fan: the single orchestrated load moment. */
+@keyframes fan-in { from { transform: translate(0, 24px) rotate(0deg); opacity: 0; } }
+.fan > * { animation: fan-in 900ms cubic-bezier(.2,.8,.2,1) both; }
+.fan > *:nth-child(2) { animation-delay: 120ms; }
+.fan > *:nth-child(3) { animation-delay: 240ms; }
+
+/* Ticket tear on checkout success, in response to the purchase. */
+@keyframes tear { 0% { transform: translateY(0) rotate(0); } 60% { transform: translateY(6px) rotate(-3deg); } 100% { transform: translateY(14px) rotate(-6deg); opacity: .0; } }
+.tear { animation: tear 900ms 400ms ease-in forwards; }
+@keyframes rise { from { transform: translateY(16px); opacity: 0; } }
+.rise { animation: rise 600ms 200ms cubic-bezier(.2,.8,.2,1) both; }
+
+@keyframes toast-in { from { transform: translate(-50%, 16px); opacity: 0; } }
+.toast { animation: toast-in 260ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+}
+
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }

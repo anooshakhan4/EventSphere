@@ -1,0 +1,625 @@
+// EventSphere database schema (PostgreSQL).
+// Anything with limited stock (seats, tickets, stalls, shifts) uses a hold with an
+// expiry so nothing stays locked if a payment never completes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- People ----------
+
+enum Role {
+  ATTENDEE
+  ORGANIZER
+  VENDOR
+  ADMIN
+}
+
+enum Locale {
+  en
+  ur
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  handle       String   @unique
+  phone        String?
+  city         String?
+  locale       Locale   @default(en)
+  roles        Role[]   @default([ATTENDEE])
+  points       Int      @default(0)
+  interests    Theme[]  @relation("UserInterests")
+  createdAt    DateTime @default(now())
+
+  organized       Event[]          @relation("Organizer")
+  teamRoles       EventTeam[]
+  orders          Order[]
+  tickets         Ticket[]         @relation("TicketOwner")
+  saved           SavedEvent[]
+  waitlists       WaitlistEntry[]
+  reviews         Review[]
+  photos          Photo[]
+  vendorProfile   VendorProfile?
+  volunteerApps   VolunteerApplication[]
+  shiftAssigns    ShiftAssignment[]
+  badges          UserBadge[]
+  certificates    Certificate[]
+  pointsLedger    PointsTransaction[]
+  following       Follow[]         @relation("Follower")
+  followers       Follow[]         @relation("Followee")
+  groupBookings   GroupBooking[]
+  reports         Report[]
+}
+
+model Follow {
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+  follower   User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followee   User     @relation("Followee", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followeeId])
+}
+
+// ---------- Events ----------
+
+model Theme {
+  id     String  @id @default(cuid())
+  slug   String  @unique
+  name   String
+  nameUr String
+  color  String
+  events Event[]
+  users  User[]  @relation("UserInterests")
+}
+
+enum EventFormat {
+  IN_PERSON
+  ONLINE
+  HYBRID
+}
+
+enum EventStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  REJECTED
+  CANCELLED
+  ENDED
+}
+
+model Event {
+  id              String      @id @default(cuid())
+  slug            String      @unique
+  title           String
+  tagline         String
+  description     String
+  coverUrl        String?
+  themeId         String
+  theme           Theme       @relation(fields: [themeId], references: [id])
+  organizerId     String
+  organizer       User        @relation("Organizer", fields: [organizerId], references: [id])
+  status          EventStatus @default(DRAFT)
+  format          EventFormat @default(IN_PERSON)
+  startsAt        DateTime
+  endsAt          DateTime
+  timezone        String      @default("Asia/Karachi")
+  city            String?
+  venueName       String?
+  address         String?
+  lat             Float?
+  lng             Float?
+  streamUrl       String?     // shown only to ticket holders
+  accessibility   String[]
+  hasSeating      Boolean     @default(false)
+  volunteersOn    Boolean     @default(false)
+  stallsOn        Boolean     @default(false)
+  approveVendors  Boolean     @default(true)
+  approveSwaps    Boolean     @default(true)
+  groupHoldHours  Int         @default(24)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  agenda       AgendaItem[]
+  tiers        TicketTier[]
+  seats        Seat[]
+  promoCodes   PromoCode[]
+  orders       Order[]
+  team         EventTeam[]
+  saved        SavedEvent[]
+  waitlist     WaitlistEntry[]
+  reviews      Review[]
+  photos       Photo[]
+  stalls       Stall[]
+  addons       StallAddon[]
+  roles        VolunteerRole[]
+  certificates Certificate[]
+  views        EventView[]
+
+  @@index([status, startsAt])
+  @@index([city, startsAt])
+  @@index([themeId])
+}
+
+enum TeamRole {
+  OWNER
+  MANAGER
+  CHECKIN
+}
+
+model EventTeam {
+  eventId String
+  userId  String
+  role    TeamRole
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, userId])
+}
+
+model AgendaItem {
+  id      String   @id @default(cuid())
+  eventId String
+  at      DateTime
+  title   String
+  speaker String?
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model EventView {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String?
+  source    String?
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+}
+
+// ---------- Tickets and orders ----------
+
+model TicketTier {
+  id           String    @id @default(cuid())
+  eventId      String
+  name         String
+  perks        String?
+  price        Int       // PKR, whole rupees
+  quantity     Int
+  sold         Int       @default(0)
+  held         Int       @default(0)
+  isOnline     Boolean   @default(false)
+  needsSeat    Boolean   @default(false)
+  salesStart   DateTime?
+  salesEnd     DateTime? // early-bird tiers simply end earlier
+  maxPerOrder  Int       @default(10)
+  sortOrder    Int       @default(0)
+  event        Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems   OrderItem[]
+  tickets      Ticket[]
+  waitlist     WaitlistEntry[]
+}
+
+enum SeatStatus {
+  OPEN
+  HELD
+  SOLD
+  BLOCKED
+}
+
+model Seat {
+  id         String     @id @default(cuid())
+  eventId    String
+  section    String     @default("Main")
+  row        String
+  number     Int
+  status     SeatStatus @default(OPEN)
+  heldUntil  DateTime?
+  heldByOrder String?
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticket     Ticket?
+
+  @@unique([eventId, section, row, number])
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+model PromoCode {
+  id         String       @id @default(cuid())
+  eventId    String
+  code       String
+  type       DiscountType
+  value      Int
+  maxUses    Int?
+  used       Int          @default(0)
+  expiresAt  DateTime?
+  event      Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@unique([eventId, code])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  EXPIRED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  JAZZCASH
+  EASYPAISA
+  CARD
+  FREE
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  code          String        @unique // human-friendly, e.g. ES-7KQ2PA
+  eventId       String
+  userId        String
+  status        OrderStatus   @default(PENDING)
+  subtotal      Int
+  discount      Int           @default(0)
+  fee           Int           @default(0)
+  total         Int
+  promoId       String?
+  method        PaymentMethod?
+  providerRef   String?       // transaction id from JazzCash / Easypaisa / card gateway
+  expiresAt     DateTime      // hold expiry while PENDING
+  groupBookingId String?
+  createdAt     DateTime      @default(now())
+  paidAt        DateTime?
+  event         Event         @relation(fields: [eventId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+  promo         PromoCode?    @relation(fields: [promoId], references: [id])
+  groupBooking  GroupBooking? @relation(fields: [groupBookingId], references: [id])
+  items         OrderItem[]
+  tickets       Ticket[]
+
+  @@index([status, expiresAt])
+}
+
+model OrderItem {
+  id       String     @id @default(cuid())
+  orderId  String
+  tierId   String
+  quantity Int
+  price    Int
+  order    Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tier     TicketTier @relation(fields: [tierId], references: [id])
+}
+
+enum TicketStatus {
+  VALID
+  CHECKED_IN
+  TRANSFERRED
+  RESALE_LISTED
+  CANCELLED
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  orderId     String
+  tierId      String
+  ownerId     String
+  seatId      String?      @unique
+  qrToken     String       @unique // signed; reissued on transfer or resale
+  status      TicketStatus @default(VALID)
+  resalePrice Int?
+  checkedInAt DateTime?
+  createdAt   DateTime     @default(now())
+  order       Order        @relation(fields: [orderId], references: [id])
+  tier        TicketTier   @relation(fields: [tierId], references: [id])
+  owner       User         @relation("TicketOwner", fields: [ownerId], references: [id])
+  seat        Seat?        @relation(fields: [seatId], references: [id])
+  transfers   TicketTransfer[]
+}
+
+model TicketTransfer {
+  id        String   @id @default(cuid())
+  ticketId  String
+  fromId    String
+  toEmail   String
+  kind      String   // "GIFT" | "RESALE"
+  price     Int?
+  createdAt DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+}
+
+model GroupBooking {
+  id         String   @id @default(cuid())
+  leadId     String
+  tierId     String
+  seats      Int
+  shareCode  String   @unique
+  deadline   DateTime
+  createdAt  DateTime @default(now())
+  lead       User     @relation(fields: [leadId], references: [id])
+  orders     Order[]
+}
+
+enum WaitlistStatus {
+  WAITING
+  OFFERED
+  CONVERTED
+  EXPIRED
+}
+
+model WaitlistEntry {
+  id          String         @id @default(cuid())
+  eventId     String
+  tierId      String
+  userId      String
+  quantity    Int            @default(1)
+  status      WaitlistStatus @default(WAITING)
+  offerExpires DateTime?
+  createdAt   DateTime       @default(now())
+  event       Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tier        TicketTier     @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tierId, userId])
+  @@index([tierId, status, createdAt])
+}
+
+// ---------- Engagement ----------
+
+model SavedEvent {
+  userId    String
+  eventId   String
+  remindAt  DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([userId, eventId])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  rating    Int
+  text      String
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([eventId, userId])
+}
+
+model Photo {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  url       String
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model PointsTransaction {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Int      // negative when redeemed
+  reason    String   // BOOKING | REVIEW | VOLUNTEER | REFERRAL | REDEEM
+  refId     String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Vendors and stalls ----------
+
+model VendorProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  brand     String
+  category  String
+  bio       String?
+  logoUrl   String?
+  gallery   String[]
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings  StallBooking[]
+}
+
+enum StallSize {
+  S
+  M
+  L
+}
+
+enum StallStatus {
+  OPEN
+  HELD
+  BOOKED
+  BLOCKED
+}
+
+model Stall {
+  id        String      @id @default(cuid())
+  eventId   String
+  label     String
+  size      StallSize
+  price     Int
+  x         Int
+  y         Int
+  w         Int         @default(1)
+  h         Int         @default(1)
+  status    StallStatus @default(OPEN)
+  heldUntil DateTime?
+  event     Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  bookings  StallBooking[]
+
+  @@unique([eventId, label])
+}
+
+model StallAddon {
+  id      String @id @default(cuid())
+  eventId String
+  name    String
+  price   Int
+  stock   Int?
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  items   StallBookingAddon[]
+}
+
+enum StallBookingStatus {
+  PENDING_PAYMENT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model StallBooking {
+  id         String             @id @default(cuid())
+  stallId    String
+  vendorId   String
+  status     StallBookingStatus @default(PENDING_PAYMENT)
+  total      Int
+  paidAt     DateTime?
+  createdAt  DateTime           @default(now())
+  stall      Stall              @relation(fields: [stallId], references: [id])
+  vendor     VendorProfile      @relation(fields: [vendorId], references: [id])
+  addons     StallBookingAddon[]
+}
+
+model StallBookingAddon {
+  bookingId String
+  addonId   String
+  quantity  Int          @default(1)
+  booking   StallBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  addon     StallAddon   @relation(fields: [addonId], references: [id])
+
+  @@id([bookingId, addonId])
+}
+
+// ---------- Volunteers ----------
+
+model VolunteerRole {
+  id          String  @id @default(cuid())
+  eventId     String
+  name        String
+  description String?
+  event       Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  shifts      Shift[]
+  applications VolunteerApplication[]
+}
+
+model Shift {
+  id        String   @id @default(cuid())
+  roleId    String
+  startsAt  DateTime
+  endsAt    DateTime
+  capacity  Int
+  role      VolunteerRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assigns   ShiftAssignment[]
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model VolunteerApplication {
+  id        String            @id @default(cuid())
+  roleId    String
+  userId    String
+  note      String?
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  role      VolunteerRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, userId])
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  SWAP_OFFERED
+  SWAPPED
+  CHECKED_IN
+  COMPLETED
+  NO_SHOW
+}
+
+model ShiftAssignment {
+  id          String           @id @default(cuid())
+  shiftId     String
+  userId      String
+  status      AssignmentStatus @default(ASSIGNED)
+  swapToId    String?          // a named volunteer; null = offered to the pool
+  checkInAt   DateTime?
+  checkOutAt  DateTime?
+  minutes     Int              @default(0)
+  shift       Shift            @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, userId])
+}
+
+model Badge {
+  id       String      @id @default(cuid())
+  slug     String      @unique
+  name     String
+  minHours Int
+  users    UserBadge[]
+}
+
+model UserBadge {
+  userId    String
+  badgeId   String
+  awardedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id])
+
+  @@id([userId, badgeId])
+}
+
+model Certificate {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  kind      String   // ATTENDEE | VOLUNTEER
+  hours     Int?
+  verifyCode String  @unique
+  pdfUrl    String?
+  issuedAt  DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ---------- Moderation ----------
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+model Report {
+  id         String       @id @default(cuid())
+  reporterId String
+  targetType String       // EVENT | REVIEW | PHOTO | USER
+  targetId   String
+  reason     String
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+  reporter   User         @relation(fields: [reporterId], references: [id])
+}
